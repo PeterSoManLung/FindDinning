@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../middleware/auth';
 import { UserModel, UserValidation } from '../models/User';
-import { UserRegistrationRequest, UserLoginRequest } from '../../../shared/src/types/user.types';
+import { UserRegistrationRequest, UserLoginRequest } from '@shared/types/user.types';
 
 // Mock user storage - In production, this would be a database
 const users: Map<string, UserModel & { password: string }> = new Map();

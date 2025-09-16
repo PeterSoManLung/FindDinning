@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { UserModel, UserValidation } from '../models/User';
-import { UserPreferences, UserUpdateRequest } from '../../../shared/src/types/user.types';
+import { UserPreferences, UserUpdateRequest } from '@shared/types/user.types';
 import { getUserStorage } from './authController';
 
 // Types for preference history tracking

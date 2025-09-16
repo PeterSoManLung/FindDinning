@@ -6,7 +6,7 @@ import {
   UserLocation,
   UserRegistrationRequest,
   UserUpdateRequest 
-} from '../../../shared/src/types/user.types';
+} from '@shared/types/user.types';
 import Joi from 'joi';
 
 export class UserModel implements User {
