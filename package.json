@@ -1,0 +1,33 @@
+{
+  "name": "find-dining-app",
+  "version": "1.0.0",
+  "description": "搵食 (Find Dining) - AI-powered restaurant recommendation platform for Hong Kong",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "user-service",
+    "restaurant-service",
+    "recommendation-engine",
+    "review-service",
+    "emotion-service"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "dev:user": "npm run dev --workspace=user-service",
+    "dev:restaurant": "npm run dev --workspace=restaurant-service",
+    "dev:recommendation": "npm run dev --workspace=recommendation-engine",
+    "dev:review": "npm run dev --workspace=review-service",
+    "dev:emotion": "npm run dev --workspace=emotion-service",
+    "build:shared": "npm run build --workspace=shared",
+    "install:all": "npm install && npm install --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "lerna": "^7.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
