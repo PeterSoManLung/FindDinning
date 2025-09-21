@@ -1,0 +1,105 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - echo Installing dependencies...
+      - npm install -g npm@latest
+      - echo Build started on `date`
+      
+  build:
+    commands:
+      - echo Build phase started on `date`
+      
+      # Build and test shared module first
+      - echo "Building shared module..."
+      - cd shared
+      - npm ci
+      - npm run build
+      - npm test -- --coverage --watchAll=false
+      - cd ..
+      
+      # Build and test each microservice
+      - |
+        for service in api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service; do
+          echo "Building and testing $service..."
+          cd $service
+          
+          # Install dependencies
+          npm ci
+          
+          # Run linting
+          npm run lint || echo "Linting failed for $service"
+          
+          # Run unit tests with coverage
+          npm test -- --coverage --watchAll=false
+          
+          # Build the service
+          npm run build
+          
+          # Build Docker image
+          echo "Building Docker image for $service..."
+          docker build -t $service:$CODEBUILD_RESOLVED_SOURCE_VERSION .
+          
+          # Tag image for ECR
+          docker tag $service:$CODEBUILD_RESOLVED_SOURCE_VERSION $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME-$service:$CODEBUILD_RESOLVED_SOURCE_VERSION
+          docker tag $service:$CODEBUILD_RESOLVED_SOURCE_VERSION $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME-$service:latest
+          
+          # Push image to ECR
+          echo "Pushing Docker image for $service..."
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME-$service:$CODEBUILD_RESOLVED_SOURCE_VERSION
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME-$service:latest
+          
+          cd ..
+        done
+      
+      # Build mobile app
+      - echo "Building mobile app..."
+      - cd mobile-app
+      - npm ci
+      - npm test -- --coverage --watchAll=false
+      - npm run build:android || echo "Android build failed"
+      - npm run build:ios || echo "iOS build failed"
+      - cd ..
+      
+      # Run integration tests
+      - echo "Running integration tests..."
+      - npm run test:integration || echo "Integration tests failed"
+      
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo "Generating build artifacts..."
+      
+      # Create deployment manifests with new image tags
+      - |
+        for service in api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service; do
+          sed -i "s|IMAGE_TAG|$CODEBUILD_RESOLVED_SOURCE_VERSION|g" infrastructure/k8s/microservices-deployments.yaml
+          sed -i "s|AWS_ACCOUNT_ID|$AWS_ACCOUNT_ID|g" infrastructure/k8s/microservices-deployments.yaml
+          sed -i "s|AWS_REGION|$AWS_DEFAULT_REGION|g" infrastructure/k8s/microservices-deployments.yaml
+        done
+      
+      # Generate test reports
+      - echo "Collecting test coverage reports..."
+      - mkdir -p reports/coverage
+      - find . -name "coverage" -type d -exec cp -r {} reports/coverage/ \; || echo "No coverage reports found"
+
+artifacts:
+  files:
+    - '**/*'
+  name: BuildArtifacts
+
+reports:
+  jest_reports:
+    files:
+      - '**/coverage/lcov.info'
+    file-format: 'CLOVERXML'
+    base-directory: '.'
+  
+cache:
+  paths:
+    - '/root/.npm/**/*'
+    - 'node_modules/**/*'
+    - '*/node_modules/**/*'

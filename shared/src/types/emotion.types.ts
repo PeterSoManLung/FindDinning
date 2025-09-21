@@ -42,8 +42,8 @@ export interface EmotionToCuisineMappingRequest {
   emotion: string;
   intensity?: number;
   userPreferences?: {
-    cuisineTypes: string[];
-    dietaryRestrictions: string[];
+    cuisineTypes?: string[];
+    dietaryRestrictions?: string[];
   };
 }
 

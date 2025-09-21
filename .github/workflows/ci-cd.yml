@@ -1,0 +1,312 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: ap-southeast-1
+  EKS_CLUSTER_NAME: find-dining-cluster
+  IMAGE_REPO_NAME: find-dining
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        service: [
+          'shared',
+          'api-gateway',
+          'user-service',
+          'restaurant-service',
+          'recommendation-engine',
+          'review-service',
+          'emotion-service',
+          'data-integration-service',
+          'mobile-app'
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: '${{ matrix.service }}/package-lock.json'
+    
+    - name: Install dependencies
+      run: |
+        cd ${{ matrix.service }}
+        npm ci
+    
+    - name: Run linting
+      run: |
+        cd ${{ matrix.service }}
+        npm run lint || echo "Linting not configured for ${{ matrix.service }}"
+    
+    - name: Run tests
+      run: |
+        cd ${{ matrix.service }}
+        npm test -- --coverage --watchAll=false
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ${{ matrix.service }}/coverage/lcov.info
+        flags: ${{ matrix.service }}
+        name: ${{ matrix.service }}-coverage
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install security tools
+      run: |
+        npm install -g snyk
+        npm install -g retire
+        npm install -g audit-ci
+    
+    - name: Run npm audit
+      run: |
+        for service in shared api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service mobile-app; do
+          echo "Auditing $service..."
+          cd $service
+          npm audit --audit-level=high || echo "Audit issues found in $service"
+          cd ..
+        done
+    
+    - name: Run Snyk security scan
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        for service in shared api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service mobile-app; do
+          echo "Snyk scanning $service..."
+          cd $service
+          snyk test || echo "Snyk issues found in $service"
+          cd ..
+        done
+      continue-on-error: true
+    
+    - name: Run Retire.js scan
+      run: |
+        for service in shared api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service mobile-app; do
+          echo "Retire.js scanning $service..."
+          cd $service
+          retire --js || echo "Retire.js issues found in $service"
+          cd ..
+        done
+      continue-on-error: true
+
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    if: github.ref == 'refs/heads/main'
+    
+    strategy:
+      matrix:
+        service: [
+          'api-gateway',
+          'user-service',
+          'restaurant-service',
+          'recommendation-engine',
+          'review-service',
+          'emotion-service',
+          'data-integration-service'
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    - name: Build shared module
+      run: |
+        cd shared
+        npm ci
+        npm run build
+    
+    - name: Build, tag, and push image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd ${{ matrix.service }}
+        
+        # Install dependencies and build
+        npm ci
+        npm run build
+        
+        # Build Docker image
+        docker build -t $ECR_REGISTRY/$IMAGE_REPO_NAME-${{ matrix.service }}:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$IMAGE_REPO_NAME-${{ matrix.service }}:$IMAGE_TAG $ECR_REGISTRY/$IMAGE_REPO_NAME-${{ matrix.service }}:latest
+        
+        # Push image to ECR
+        docker push $ECR_REGISTRY/$IMAGE_REPO_NAME-${{ matrix.service }}:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$IMAGE_REPO_NAME-${{ matrix.service }}:latest
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.21.0'
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
+    
+    - name: Deploy to staging
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+        ENVIRONMENT: staging
+      run: |
+        # Update image tags in deployment manifests
+        sed -i "s|IMAGE_TAG|$IMAGE_TAG|g" infrastructure/k8s/microservices-deployments.yaml
+        sed -i "s|AWS_ACCOUNT_ID|${{ secrets.AWS_ACCOUNT_ID }}|g" infrastructure/k8s/microservices-deployments.yaml
+        sed -i "s|AWS_REGION|${{ env.AWS_REGION }}|g" infrastructure/k8s/microservices-deployments.yaml
+        sed -i "s|ENVIRONMENT|$ENVIRONMENT|g" infrastructure/k8s/microservices-deployments.yaml
+        
+        # Create namespace if it doesn't exist
+        kubectl create namespace $ENVIRONMENT || echo "Namespace $ENVIRONMENT already exists"
+        
+        # Apply configurations
+        kubectl apply -f infrastructure/k8s/configmap.yaml -n $ENVIRONMENT
+        
+        # Create secrets
+        kubectl create secret generic db-credentials \
+          --from-literal=user-db-url="${{ secrets.USER_DB_URL }}" \
+          --from-literal=restaurant-db-url="${{ secrets.RESTAURANT_DB_URL }}" \
+          --from-literal=redis-url="${{ secrets.REDIS_URL }}" \
+          -n $ENVIRONMENT --dry-run=client -o yaml | kubectl apply -f -
+        
+        kubectl create secret generic api-keys \
+          --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+          --from-literal=openrice-api-key="${{ secrets.OPENRICE_API_KEY }}" \
+          --from-literal=tripadvisor-api-key="${{ secrets.TRIPADVISOR_API_KEY }}" \
+          -n $ENVIRONMENT --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy services
+        kubectl apply -f infrastructure/k8s/microservices-deployments.yaml -n $ENVIRONMENT
+        kubectl apply -f infrastructure/k8s/api-gateway-deployment.yaml -n $ENVIRONMENT
+        kubectl apply -f infrastructure/k8s/ingress.yaml -n $ENVIRONMENT
+        
+        # Wait for deployments to be ready
+        kubectl rollout status deployment/api-gateway -n $ENVIRONMENT --timeout=600s
+        kubectl rollout status deployment/user-service -n $ENVIRONMENT --timeout=600s
+        kubectl rollout status deployment/restaurant-service -n $ENVIRONMENT --timeout=600s
+        kubectl rollout status deployment/recommendation-engine -n $ENVIRONMENT --timeout=600s
+        kubectl rollout status deployment/review-service -n $ENVIRONMENT --timeout=600s
+        kubectl rollout status deployment/emotion-service -n $ENVIRONMENT --timeout=600s
+        kubectl rollout status deployment/data-integration-service -n $ENVIRONMENT --timeout=600s
+    
+    - name: Run health checks
+      run: |
+        chmod +x infrastructure/scripts/health-check.sh
+        ./infrastructure/scripts/health-check.sh staging
+    
+    - name: Run smoke tests
+      run: |
+        chmod +x infrastructure/scripts/smoke-tests.sh
+        ./infrastructure/scripts/smoke-tests.sh staging
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.21.0'
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
+    
+    - name: Deploy to production with blue-green strategy
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+        ENVIRONMENT: production
+      run: |
+        chmod +x infrastructure/scripts/blue-green-deploy.sh
+        ./infrastructure/scripts/blue-green-deploy.sh $ENVIRONMENT $IMAGE_TAG
+    
+    - name: Run post-deployment health checks
+      run: |
+        chmod +x infrastructure/scripts/health-check.sh
+        ./infrastructure/scripts/health-check.sh production
+    
+    - name: Run post-deployment smoke tests
+      run: |
+        chmod +x infrastructure/scripts/smoke-tests.sh
+        ./infrastructure/scripts/smoke-tests.sh production
+    
+    - name: Notify deployment success
+      if: success()
+      run: |
+        echo "Production deployment successful!"
+        # Add notification logic here (Slack, email, etc.)
+    
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "Production deployment failed, initiating rollback..."
+        chmod +x infrastructure/scripts/rollback-deployment.sh
+        ./infrastructure/scripts/rollback-deployment.sh production

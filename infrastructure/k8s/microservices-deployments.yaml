@@ -1,0 +1,654 @@
+# User Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: user-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: user-service
+      app.kubernetes.io/instance: find-dining
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: user-service
+        app.kubernetes.io/instance: find-dining
+        app.kubernetes.io/component: user-service
+    spec:
+      serviceAccountName: find-dining-service-account
+      imagePullSecrets:
+        - name: ecr-registry-secret
+      containers:
+        - name: user-service
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/find-dining/user-service:latest
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: NODE_ENV
+            - name: PORT
+              value: "3001"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: USER_DB_HOST
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: DB_PASSWORD
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: DB_PORT
+            - name: DB_NAME
+              value: "userservice"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: JWT_SECRET
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_PORT
+            - name: REDIS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_AUTH_TOKEN
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 150m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/instance: find-dining
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3001
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/instance: find-dining
+
+---
+# Restaurant Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restaurant-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: restaurant-service
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: restaurant-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: restaurant-service
+      app.kubernetes.io/instance: find-dining
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: restaurant-service
+        app.kubernetes.io/instance: find-dining
+        app.kubernetes.io/component: restaurant-service
+    spec:
+      serviceAccountName: find-dining-service-account
+      imagePullSecrets:
+        - name: ecr-registry-secret
+      containers:
+        - name: restaurant-service
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/find-dining/restaurant-service:latest
+          ports:
+            - name: http
+              containerPort: 3002
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: NODE_ENV
+            - name: PORT
+              value: "3002"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: RESTAURANT_DB_HOST
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: DB_PASSWORD
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: DB_PORT
+            - name: DB_NAME
+              value: "restaurantservice"
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_PORT
+            - name: REDIS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_AUTH_TOKEN
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 400m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: restaurant-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: restaurant-service
+    app.kubernetes.io/instance: find-dining
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3002
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: restaurant-service
+    app.kubernetes.io/instance: find-dining
+
+---
+# Recommendation Engine Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendation-engine
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: recommendation-engine
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: recommendation-engine
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: recommendation-engine
+      app.kubernetes.io/instance: find-dining
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: recommendation-engine
+        app.kubernetes.io/instance: find-dining
+        app.kubernetes.io/component: recommendation-engine
+    spec:
+      serviceAccountName: find-dining-service-account
+      imagePullSecrets:
+        - name: ecr-registry-secret
+      containers:
+        - name: recommendation-engine
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/find-dining/recommendation-engine:latest
+          ports:
+            - name: http
+              containerPort: 3003
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: NODE_ENV
+            - name: PORT
+              value: "3003"
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_PORT
+            - name: REDIS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: REDIS_AUTH_TOKEN
+            - name: SAGEMAKER_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: SAGEMAKER_ENDPOINT
+            - name: USER_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: USER_SERVICE_URL
+            - name: RESTAURANT_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: RESTAURANT_SERVICE_URL
+            - name: REVIEW_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: REVIEW_SERVICE_URL
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 600m
+              memory: 1Gi
+            requests:
+              cpu: 300m
+              memory: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendation-engine
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: recommendation-engine
+    app.kubernetes.io/instance: find-dining
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3003
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: recommendation-engine
+    app.kubernetes.io/instance: find-dining
+
+---
+# Review Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: review-service
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: review-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: review-service
+      app.kubernetes.io/instance: find-dining
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: review-service
+        app.kubernetes.io/instance: find-dining
+        app.kubernetes.io/component: review-service
+    spec:
+      serviceAccountName: find-dining-service-account
+      imagePullSecrets:
+        - name: ecr-registry-secret
+      containers:
+        - name: review-service
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/find-dining/review-service:latest
+          ports:
+            - name: http
+              containerPort: 3004
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: NODE_ENV
+            - name: PORT
+              value: "3004"
+            - name: AWS_S3_REVIEWS_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: AWS_S3_REVIEWS_BUCKET
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: AWS_REGION
+            - name: BEDROCK_MODEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: BEDROCK_MODEL_ID
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 400m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: review-service
+    app.kubernetes.io/instance: find-dining
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3004
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: review-service
+    app.kubernetes.io/instance: find-dining
+
+---
+# Emotion Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emotion-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: emotion-service
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: emotion-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emotion-service
+      app.kubernetes.io/instance: find-dining
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: emotion-service
+        app.kubernetes.io/instance: find-dining
+        app.kubernetes.io/component: emotion-service
+    spec:
+      serviceAccountName: find-dining-service-account
+      imagePullSecrets:
+        - name: ecr-registry-secret
+      containers:
+        - name: emotion-service
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/find-dining/emotion-service:latest
+          ports:
+            - name: http
+              containerPort: 3005
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: NODE_ENV
+            - name: PORT
+              value: "3005"
+            - name: BEDROCK_MODEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: BEDROCK_MODEL_ID
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: AWS_REGION
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 150m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emotion-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: emotion-service
+    app.kubernetes.io/instance: find-dining
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3005
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: emotion-service
+    app.kubernetes.io/instance: find-dining
+
+---
+# Data Integration Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-integration-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: data-integration-service
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: data-integration-service
+spec:
+  replicas: 1  # Single replica for data sync coordination
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: data-integration-service
+      app.kubernetes.io/instance: find-dining
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: data-integration-service
+        app.kubernetes.io/instance: find-dining
+        app.kubernetes.io/component: data-integration-service
+    spec:
+      serviceAccountName: find-dining-service-account
+      imagePullSecrets:
+        - name: ecr-registry-secret
+      containers:
+        - name: data-integration-service
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/find-dining/data-integration-service:latest
+          ports:
+            - name: http
+              containerPort: 3006
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: NODE_ENV
+            - name: PORT
+              value: "3006"
+            - name: AWS_S3_PLATFORM_DATA_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: AWS_S3_PLATFORM_DATA_BUCKET
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: AWS_REGION
+            - name: OPENRICE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: OPENRICE_API_KEY
+            - name: TRIPADVISOR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: find-dining-secrets
+                  key: TRIPADVISOR_API_KEY
+            - name: RESTAURANT_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: find-dining-config
+                  key: RESTAURANT_SERVICE_URL
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-integration-service
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: data-integration-service
+    app.kubernetes.io/instance: find-dining
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3006
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: data-integration-service
+    app.kubernetes.io/instance: find-dining

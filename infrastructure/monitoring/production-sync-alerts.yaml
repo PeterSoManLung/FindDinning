@@ -1,0 +1,414 @@
+# Production Data Synchronization Monitoring and Alerting Configuration
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: production-sync-monitoring-config
+  namespace: default
+data:
+  alert-rules.yaml: |
+    # CloudWatch Alarms Configuration
+    alarms:
+      - name: "DataSyncFailureRate"
+        description: "Alert when data sync failure rate exceeds threshold"
+        metric:
+          namespace: "DataIntegration"
+          name: "SyncFailures"
+          statistic: "Sum"
+          period: 300
+        threshold: 1
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 2
+        treat_missing_data: "notBreaching"
+        actions:
+          - type: "sns"
+            target: "${SNS_TOPIC_ARN}"
+        dimensions:
+          Environment: "${ENVIRONMENT}"
+
+      - name: "DataStalenessHigh"
+        description: "Alert when data staleness exceeds acceptable levels"
+        metric:
+          namespace: "DataIntegration"
+          name: "DataStaleness"
+          statistic: "Maximum"
+          period: 3600
+        threshold: 0.7
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 1
+        treat_missing_data: "breaching"
+        actions:
+          - type: "sns"
+            target: "${SNS_TOPIC_ARN}"
+        dimensions:
+          Environment: "${ENVIRONMENT}"
+
+      - name: "SyncPerformanceDegraded"
+        description: "Alert when sync operations take too long"
+        metric:
+          namespace: "DataIntegration"
+          name: "SyncDuration"
+          statistic: "Average"
+          period: 300
+        threshold: 300000  # 5 minutes in milliseconds
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 2
+        treat_missing_data: "notBreaching"
+        actions:
+          - type: "sns"
+            target: "${SNS_TOPIC_ARN}"
+        dimensions:
+          Environment: "${ENVIRONMENT}"
+
+      - name: "BackupFailure"
+        description: "Alert when backup operations fail"
+        metric:
+          namespace: "DataIntegration"
+          name: "BackupFailures"
+          statistic: "Sum"
+          period: 300
+        threshold: 0
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 1
+        treat_missing_data: "notBreaching"
+        actions:
+          - type: "sns"
+            target: "${SNS_TOPIC_ARN}"
+        dimensions:
+          Environment: "${ENVIRONMENT}"
+
+      - name: "LineageRecordingFailure"
+        description: "Alert when data lineage recording fails"
+        metric:
+          namespace: "DataIntegration"
+          name: "LineageFailures"
+          statistic: "Sum"
+          period: 300
+        threshold: 5
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 2
+        treat_missing_data: "notBreaching"
+        actions:
+          - type: "sns"
+            target: "${SNS_TOPIC_ARN}"
+        dimensions:
+          Environment: "${ENVIRONMENT}"
+
+    # Custom Metrics Configuration
+    custom_metrics:
+      - name: "DataQualityScore"
+        description: "Overall data quality score across all sources"
+        unit: "Percent"
+        dimensions:
+          - "Environment"
+          - "Source"
+
+      - name: "ComplianceRate"
+        description: "GDPR compliance rate for data processing"
+        unit: "Percent"
+        dimensions:
+          - "Environment"
+
+      - name: "RecordProcessingRate"
+        description: "Rate of record processing per second"
+        unit: "Count/Second"
+        dimensions:
+          - "Environment"
+          - "Source"
+
+      - name: "ErrorRate"
+        description: "Error rate during data processing"
+        unit: "Percent"
+        dimensions:
+          - "Environment"
+          - "Source"
+          - "ErrorType"
+
+  dashboard-config.json: |
+    {
+      "widgets": [
+        {
+          "type": "metric",
+          "x": 0,
+          "y": 0,
+          "width": 12,
+          "height": 6,
+          "properties": {
+            "metrics": [
+              [ "DataIntegration", "SyncJobsExecuted", "Environment", "${ENVIRONMENT}", { "stat": "Sum" } ],
+              [ ".", "SyncFailures", ".", ".", { "stat": "Sum" } ],
+              [ ".", "RecordsProcessed", ".", ".", { "stat": "Sum" } ]
+            ],
+            "view": "timeSeries",
+            "stacked": false,
+            "region": "${AWS_REGION}",
+            "title": "Sync Operations Overview",
+            "period": 300,
+            "yAxis": {
+              "left": {
+                "min": 0
+              }
+            }
+          }
+        },
+        {
+          "type": "metric",
+          "x": 12,
+          "y": 0,
+          "width": 12,
+          "height": 6,
+          "properties": {
+            "metrics": [
+              [ "DataIntegration", "SyncDuration", "Environment", "${ENVIRONMENT}", { "stat": "Average" } ],
+              [ ".", "SyncDuration", ".", ".", { "stat": "Maximum" } ]
+            ],
+            "view": "timeSeries",
+            "stacked": false,
+            "region": "${AWS_REGION}",
+            "title": "Sync Performance",
+            "period": 300,
+            "yAxis": {
+              "left": {
+                "min": 0
+              }
+            }
+          }
+        },
+        {
+          "type": "metric",
+          "x": 0,
+          "y": 6,
+          "width": 8,
+          "height": 6,
+          "properties": {
+            "metrics": [
+              [ "DataIntegration", "DataStaleness", "Environment", "${ENVIRONMENT}", "Source", "openrice" ],
+              [ "...", "eatigo" ],
+              [ "...", "chope" ],
+              [ "...", "keeta" ],
+              [ "...", "foodpanda" ],
+              [ "...", "bistrochat" ],
+              [ "...", "tripadvisor" ],
+              [ "...", "hk_gov" ]
+            ],
+            "view": "timeSeries",
+            "stacked": false,
+            "region": "${AWS_REGION}",
+            "title": "Data Freshness by Source",
+            "period": 3600,
+            "yAxis": {
+              "left": {
+                "min": 0,
+                "max": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "metric",
+          "x": 8,
+          "y": 6,
+          "width": 8,
+          "height": 6,
+          "properties": {
+            "metrics": [
+              [ "DataIntegration", "DataQualityScore", "Environment", "${ENVIRONMENT}" ],
+              [ ".", "ComplianceRate", ".", "." ]
+            ],
+            "view": "timeSeries",
+            "stacked": false,
+            "region": "${AWS_REGION}",
+            "title": "Data Quality & Compliance",
+            "period": 3600,
+            "yAxis": {
+              "left": {
+                "min": 0,
+                "max": 100
+              }
+            }
+          }
+        },
+        {
+          "type": "metric",
+          "x": 16,
+          "y": 6,
+          "width": 8,
+          "height": 6,
+          "properties": {
+            "metrics": [
+              [ "DataIntegration", "BackupSuccess", "Environment", "${ENVIRONMENT}", { "stat": "Sum" } ],
+              [ ".", "BackupFailures", ".", ".", { "stat": "Sum" } ]
+            ],
+            "view": "timeSeries",
+            "stacked": false,
+            "region": "${AWS_REGION}",
+            "title": "Backup Operations",
+            "period": 3600,
+            "yAxis": {
+              "left": {
+                "min": 0
+              }
+            }
+          }
+        },
+        {
+          "type": "log",
+          "x": 0,
+          "y": 12,
+          "width": 24,
+          "height": 6,
+          "properties": {
+            "query": "SOURCE '/aws/data-sync/${ENVIRONMENT}'\n| fields @timestamp, @message, @logStream\n| filter @message like /ERROR/ or @message like /CRITICAL/\n| sort @timestamp desc\n| limit 50",
+            "region": "${AWS_REGION}",
+            "title": "Recent Errors and Critical Events",
+            "view": "table"
+          }
+        },
+        {
+          "type": "log",
+          "x": 0,
+          "y": 18,
+          "width": 12,
+          "height": 6,
+          "properties": {
+            "query": "SOURCE '/aws/data-sync/${ENVIRONMENT}'\n| fields @timestamp, @message\n| filter @message like /Emergency sync triggered/\n| sort @timestamp desc\n| limit 20",
+            "region": "${AWS_REGION}",
+            "title": "Emergency Sync Events",
+            "view": "table"
+          }
+        },
+        {
+          "type": "log",
+          "x": 12,
+          "y": 18,
+          "width": 12,
+          "height": 6,
+          "properties": {
+            "query": "SOURCE '/aws/data-sync/${ENVIRONMENT}'\n| fields @timestamp, @message\n| filter @message like /Backup created/ or @message like /Restore completed/\n| sort @timestamp desc\n| limit 20",
+            "region": "${AWS_REGION}",
+            "title": "Backup and Restore Events",
+            "view": "table"
+          }
+        }
+      ]
+    }
+
+  notification-templates.yaml: |
+    # SNS Notification Templates
+    templates:
+      sync_failure:
+        subject: "[CRITICAL] Data Sync Failure - ${ENVIRONMENT}"
+        message: |
+          🚨 CRITICAL ALERT: Data Synchronization Failure
+          
+          Environment: ${ENVIRONMENT}
+          Timestamp: ${TIMESTAMP}
+          
+          Details:
+          - Job ID: ${JOB_ID}
+          - Sources Affected: ${SOURCES}
+          - Error Count: ${ERROR_COUNT}
+          - Records Processed: ${RECORDS_PROCESSED}
+          
+          Errors:
+          ${ERRORS}
+          
+          Action Required:
+          1. Check CloudWatch logs for detailed error information
+          2. Verify external data source availability
+          3. Consider triggering emergency sync if critical
+          4. Monitor data freshness metrics
+          
+          Dashboard: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#dashboards:name=DataSync-${ENVIRONMENT}
+
+      data_staleness:
+        subject: "[WARNING] Data Staleness Alert - ${ENVIRONMENT}"
+        message: |
+          ⚠️ WARNING: Data Staleness Detected
+          
+          Environment: ${ENVIRONMENT}
+          Timestamp: ${TIMESTAMP}
+          
+          Stale Data Sources:
+          ${STALE_SOURCES}
+          
+          Staleness Scores:
+          ${STALENESS_DETAILS}
+          
+          Recommended Actions:
+          1. Check sync job schedules
+          2. Verify external API availability
+          3. Consider manual sync for critical sources
+          4. Review data retention policies
+          
+          Dashboard: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#dashboards:name=DataSync-${ENVIRONMENT}
+
+      performance_degradation:
+        subject: "[WARNING] Sync Performance Degradation - ${ENVIRONMENT}"
+        message: |
+          ⚠️ WARNING: Sync Performance Degradation
+          
+          Environment: ${ENVIRONMENT}
+          Timestamp: ${TIMESTAMP}
+          
+          Performance Metrics:
+          - Average Duration: ${AVG_DURATION}ms
+          - Maximum Duration: ${MAX_DURATION}ms
+          - Threshold: ${THRESHOLD}ms
+          
+          Affected Jobs:
+          ${SLOW_JOBS}
+          
+          Recommended Actions:
+          1. Check system resource utilization
+          2. Review external API response times
+          3. Consider optimizing batch sizes
+          4. Monitor for concurrent job conflicts
+          
+          Dashboard: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#dashboards:name=DataSync-${ENVIRONMENT}
+
+      backup_failure:
+        subject: "[HIGH] Backup Operation Failed - ${ENVIRONMENT}"
+        message: |
+          🔴 HIGH PRIORITY: Backup Operation Failed
+          
+          Environment: ${ENVIRONMENT}
+          Timestamp: ${TIMESTAMP}
+          
+          Backup Details:
+          - Backup ID: ${BACKUP_ID}
+          - Backup Type: ${BACKUP_TYPE}
+          - Sources: ${SOURCES}
+          
+          Error Details:
+          ${ERROR_MESSAGE}
+          
+          Impact:
+          - Data recovery capabilities may be compromised
+          - Compliance requirements may not be met
+          
+          Immediate Actions Required:
+          1. Investigate backup failure cause
+          2. Attempt manual backup creation
+          3. Verify S3 bucket accessibility
+          4. Check IAM permissions
+          5. Ensure adequate storage space
+          
+          Dashboard: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#dashboards:name=DataSync-${ENVIRONMENT}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: production-sync-monitoring
+  namespace: default
+spec:
+  selector:
+    app: data-integration-service
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+    - name: health
+      port: 8080
+      targetPort: 8080

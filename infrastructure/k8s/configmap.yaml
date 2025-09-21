@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: find-dining-config
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: find-dining
+    app.kubernetes.io/component: config
+data:
+  # Environment configuration
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  
+  # Service discovery
+  USER_SERVICE_URL: "http://user-service:3001"
+  RESTAURANT_SERVICE_URL: "http://restaurant-service:3002"
+  RECOMMENDATION_ENGINE_URL: "http://recommendation-engine:3003"
+  REVIEW_SERVICE_URL: "http://review-service:3004"
+  EMOTION_SERVICE_URL: "http://emotion-service:3005"
+  DATA_INTEGRATION_SERVICE_URL: "http://data-integration-service:3006"
+  
+  # API Gateway configuration
+  API_GATEWAY_PORT: "3000"
+  
+  # Cache configuration
+  CACHE_TTL: "3600"
+  CACHE_MAX_SIZE: "1000"
+  
+  # Rate limiting
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX_REQUESTS: "100"
+  
+  # CORS configuration
+  CORS_ORIGIN: "*"
+  CORS_METHODS: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+  CORS_ALLOWED_HEADERS: "Content-Type,Authorization,X-Requested-With"
+  
+  # Health check configuration
+  HEALTH_CHECK_TIMEOUT: "5000"
+  HEALTH_CHECK_INTERVAL: "30000"
+  
+  # Data sync configuration
+  DATA_SYNC_INTERVAL: "86400000"  # 24 hours in milliseconds
+  DATA_SYNC_BATCH_SIZE: "100"
+  
+  # ML model configuration
+  ML_MODEL_TIMEOUT: "10000"
+  ML_MODEL_RETRY_ATTEMPTS: "3"
+  
+  # Recommendation configuration
+  RECOMMENDATION_CACHE_TTL: "1800"  # 30 minutes
+  MAX_RECOMMENDATIONS: "10"
+  
+  # Review analysis configuration
+  NEGATIVE_FEEDBACK_WEIGHT: "2.0"
+  AUTHENTICITY_THRESHOLD: "0.7"
+  
+  # External API configuration
+  EXTERNAL_API_TIMEOUT: "30000"
+  EXTERNAL_API_RETRY_ATTEMPTS: "3"
+  EXTERNAL_API_RETRY_DELAY: "1000"

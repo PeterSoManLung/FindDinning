@@ -1,0 +1,142 @@
+# Service Account for Find Dining application
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: find-dining-service-account
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: find-dining-service-account
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: service-account
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::${AWS_ACCOUNT_ID}:role/find-dining-${ENVIRONMENT}-eks-service-role
+
+---
+# Cluster Role for Find Dining application
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: find-dining-cluster-role
+  labels:
+    app.kubernetes.io/name: find-dining-cluster-role
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: cluster-role
+rules:
+  # Allow reading secrets for configuration
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  # Allow reading configmaps
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+  # Allow reading services for service discovery
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+  # Allow reading pods for health checks
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # Allow reading endpoints for service discovery
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list"]
+
+---
+# Cluster Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: find-dining-cluster-role-binding
+  labels:
+    app.kubernetes.io/name: find-dining-cluster-role-binding
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: cluster-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: find-dining-service-account
+    namespace: find-dining
+roleRef:
+  kind: ClusterRole
+  name: find-dining-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Role for namespace-specific permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: find-dining
+  name: find-dining-role
+  labels:
+    app.kubernetes.io/name: find-dining-role
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: role
+rules:
+  # Allow full access to secrets in the namespace
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Allow full access to configmaps in the namespace
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Allow reading and updating services
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Allow reading pods and their logs
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading events for debugging
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+---
+# Role Binding for namespace-specific permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: find-dining-role-binding
+  namespace: find-dining
+  labels:
+    app.kubernetes.io/name: find-dining-role-binding
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/component: role-binding
+subjects:
+  - kind: ServiceAccount
+    name: find-dining-service-account
+    namespace: find-dining
+roleRef:
+  kind: Role
+  name: find-dining-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# AWS Load Balancer Controller Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: aws-load-balancer-controller
+    app.kubernetes.io/component: controller
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::${AWS_ACCOUNT_ID}:role/AmazonEKSLoadBalancerControllerRole
+
+---
+# Secrets Store CSI Driver Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secrets-store-csi-driver
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: secrets-store-csi-driver
+    app.kubernetes.io/component: csi-driver
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::${AWS_ACCOUNT_ID}:role/find-dining-${ENVIRONMENT}-secrets-csi-role

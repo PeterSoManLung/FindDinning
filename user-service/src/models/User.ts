@@ -83,7 +83,7 @@ export class UserModel implements User {
 
     const newEntry: DiningHistory = {
       ...historyEntry,
-      id: `dining_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      id: `dining_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
     };
 
     this.diningHistory.push(newEntry);

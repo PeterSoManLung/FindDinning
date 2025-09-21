@@ -693,7 +693,7 @@ export class PreferencesController {
 
       if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
         changes.push({
-          id: `change_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `change_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
           userId,
           field,
           oldValue,

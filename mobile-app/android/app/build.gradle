@@ -1,0 +1,147 @@
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+
+import com.android.build.OutputFile
+
+react {
+    entryFile = "index.js"
+    bundleCommand = "ram-bundle"
+}
+
+def enableSeparateBuildPerCPUArchitecture = false
+def enableProguardInReleaseBuilds = false
+def jscFlavor = 'org.webkit:android-jsc:+'
+def enableHermes = project.ext.react.get("enableHermes", false);
+
+def reactNativeArchitectures() {
+    def value = project.getProperties().get("reactNativeArchitectures")
+    return value ? value.split(",") : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
+}
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    compileSdkVersion rootProject.ext.compileSdkVersion
+
+    namespace "com.finddining.app"
+    defaultConfig {
+        applicationId "com.finddining.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0.0"
+        
+        // AWS Pinpoint configuration
+        manifestPlaceholders = [
+            'pinpointAppId': project.findProperty('PINPOINT_APP_ID') ?: '',
+            'awsRegion': project.findProperty('AWS_REGION') ?: 'ap-southeast-1'
+        ]
+    }
+
+    splits {
+        abi {
+            reset()
+            enable enableSeparateBuildPerCPUArchitecture
+            universalApk false
+            include (*reactNativeArchitectures())
+        }
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        release {
+            if (project.hasProperty('ANDROID_KEYSTORE_PASSWORD')) {
+                storeFile file('release.keystore')
+                storePassword ANDROID_KEYSTORE_PASSWORD
+                keyAlias ANDROID_KEY_ALIAS
+                keyPassword ANDROID_KEY_PASSWORD
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            applicationIdSuffix ".debug"
+            debuggable true
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            
+            // Enable code shrinking and obfuscation for security
+            shrinkResources true
+            zipAlignEnabled true
+        }
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.each { output ->
+            def versionCodes = ["armeabi-v7a": 1, "x86": 2, "arm64-v8a": 3, "x86_64": 4]
+            def abi = output.getFilter(OutputFile.ABI)
+            if (abi != null) {
+                output.versionCodeOverride =
+                        defaultConfig.versionCode * 1000 + versionCodes.get(abi)
+            }
+        }
+    }
+
+    packagingOptions {
+        pickFirst "lib/x86/libc++_shared.so"
+        pickFirst "lib/x86_64/libc++_shared.so"
+        pickFirst "lib/arm64-v8a/libc++_shared.so"
+        pickFirst "lib/armeabi-v7a/libc++_shared.so"
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+    implementation "com.facebook.react:react-native:+"
+    implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.0.0"
+    
+    // AWS SDK for mobile analytics and crash reporting
+    implementation 'com.amazonaws:aws-android-sdk-pinpoint:2.+'
+    implementation 'com.amazonaws:aws-android-sdk-mobile-client:2.+'
+    
+    // Certificate pinning for security
+    implementation 'com.squareup.okhttp3:okhttp:4.10.0'
+    implementation 'com.squareup.okhttp3:okhttp-tls:4.10.0'
+    
+    // Performance monitoring
+    implementation 'com.google.firebase:firebase-perf:20.4.1'
+    
+    debugImplementation("com.facebook.flipper:flipper:${FLIPPER_VERSION}") {
+        exclude group:'com.facebook.fbjni'
+    }
+    debugImplementation("com.facebook.flipper:flipper-network-plugin:${FLIPPER_VERSION}") {
+        exclude group:'com.facebook.fbjni'
+    }
+    debugImplementation("com.facebook.flipper:flipper-fresco-plugin:${FLIPPER_VERSION}") {
+        exclude group:'com.facebook.fbjni'
+    }
+
+    if (enableHermes) {
+        def hermesPath = "../../node_modules/hermes-engine/android/";
+        debugImplementation files(hermesPath + "hermes-debug.aar")
+        releaseImplementation files(hermesPath + "hermes-release.aar")
+    } else {
+        implementation jscFlavor
+    }
+}
+
+if (isNewArchitectureEnabled()) {
+    react {
+        jsRootDir = file("../src/")
+        libraryName = "FindDining"
+        codegenJavaPackageName = "com.finddining.app"
+    }
+}
+
+apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)

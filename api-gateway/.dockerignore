@@ -1,0 +1,18 @@
+# API Gateway Docker ignore
+node_modules/
+npm-debug.log*
+.env
+.env.*
+*.log
+coverage/
+.nyc_output/
+**/*.test.js
+**/*.test.ts
+**/*.spec.js
+**/*.spec.ts
+**/__tests__/
+**/tests/
+.git/
+.gitignore
+README.md
+*.md

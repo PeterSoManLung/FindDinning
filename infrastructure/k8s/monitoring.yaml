@@ -1,0 +1,326 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-config
+  namespace: ai-restaurant-recommendation
+data:
+  cloudwatch-config.json: |
+    {
+      "agent": {
+        "metrics_collection_interval": 60,
+        "run_as_user": "cwagent"
+      },
+      "logs": {
+        "logs_collected": {
+          "files": {
+            "collect_list": [
+              {
+                "file_path": "/var/log/containers/*ai-restaurant-recommendation*.log",
+                "log_group_name": "/aws/eks/ai-restaurant-recommendation/containers",
+                "log_stream_name": "{instance_id}",
+                "timezone": "UTC"
+              }
+            ]
+          }
+        }
+      },
+      "metrics": {
+        "namespace": "AI-Restaurant-Recommendation/EKS",
+        "metrics_collected": {
+          "cpu": {
+            "measurement": [
+              "cpu_usage_idle",
+              "cpu_usage_iowait",
+              "cpu_usage_user",
+              "cpu_usage_system"
+            ],
+            "metrics_collection_interval": 60
+          },
+          "disk": {
+            "measurement": [
+              "used_percent"
+            ],
+            "metrics_collection_interval": 60,
+            "resources": [
+              "*"
+            ]
+          },
+          "diskio": {
+            "measurement": [
+              "io_time"
+            ],
+            "metrics_collection_interval": 60,
+            "resources": [
+              "*"
+            ]
+          },
+          "mem": {
+            "measurement": [
+              "mem_used_percent"
+            ],
+            "metrics_collection_interval": 60
+          },
+          "netstat": {
+            "measurement": [
+              "tcp_established",
+              "tcp_time_wait"
+            ],
+            "metrics_collection_interval": 60
+          },
+          "swap": {
+            "measurement": [
+              "swap_used_percent"
+            ],
+            "metrics_collection_interval": 60
+          }
+        }
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cloudwatch-agent
+  namespace: ai-restaurant-recommendation
+spec:
+  selector:
+    matchLabels:
+      name: cloudwatch-agent
+  template:
+    metadata:
+      labels:
+        name: cloudwatch-agent
+    spec:
+      containers:
+      - name: cloudwatch-agent
+        image: amazon/cloudwatch-agent:1.247358.0b251814
+        ports:
+        - containerPort: 8125
+          hostPort: 8125
+          protocol: UDP
+        resources:
+          limits:
+            cpu: 200m
+            memory: 200Mi
+          requests:
+            cpu: 200m
+            memory: 200Mi
+        env:
+        - name: AWS_REGION
+          value: "ap-southeast-1"
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: cwagentconfig
+          mountPath: /etc/cwagentconfig
+        - name: rootfs
+          mountPath: /rootfs
+          readOnly: true
+        - name: dockersock
+          mountPath: /var/run/docker.sock
+          readOnly: true
+        - name: varlibdocker
+          mountPath: /var/lib/docker
+          readOnly: true
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+      volumes:
+      - name: cwagentconfig
+        configMap:
+          name: monitoring-config
+      - name: rootfs
+        hostPath:
+          path: /
+      - name: dockersock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: varlibdocker
+        hostPath:
+          path: /var/lib/docker
+      - name: varlog
+        hostPath:
+          path: /var/log
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: cloudwatch-agent
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudwatch-agent
+  namespace: ai-restaurant-recommendation
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/CloudWatchAgentServerRole
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudwatch-agent-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "services", "endpoints", "events"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudwatch-agent-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudwatch-agent-role
+subjects:
+- kind: ServiceAccount
+  name: cloudwatch-agent
+  namespace: ai-restaurant-recommendation
+
+---
+# X-Ray DaemonSet for distributed tracing
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: xray-daemon
+  namespace: ai-restaurant-recommendation
+spec:
+  selector:
+    matchLabels:
+      app: xray-daemon
+  template:
+    metadata:
+      labels:
+        app: xray-daemon
+    spec:
+      containers:
+      - name: xray-daemon
+        image: amazon/aws-xray-daemon:3.3.7
+        command:
+        - /usr/bin/xray
+        - -o
+        - -n
+        - ap-southeast-1
+        resources:
+          limits:
+            cpu: 256m
+            memory: 32Mi
+          requests:
+            cpu: 256m
+            memory: 32Mi
+        ports:
+        - name: xray-ingest
+          containerPort: 2000
+          protocol: UDP
+        - name: xray-tcp
+          containerPort: 2000
+          protocol: TCP
+        env:
+        - name: AWS_REGION
+          value: ap-southeast-1
+      serviceAccountName: xray-daemon
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: xray-daemon
+  namespace: ai-restaurant-recommendation
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/XRayDaemonRole
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xray-service
+  namespace: ai-restaurant-recommendation
+spec:
+  selector:
+    app: xray-daemon
+  clusterIP: None
+  ports:
+  - name: xray-ingest
+    port: 2000
+    protocol: UDP
+    targetPort: 2000
+  - name: xray-tcp
+    port: 2000
+    protocol: TCP
+    targetPort: 2000
+
+---
+# Monitoring Service for health checks
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-service
+  namespace: ai-restaurant-recommendation
+  labels:
+    app: monitoring-service
+spec:
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: monitoring-service
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-service
+  namespace: ai-restaurant-recommendation
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: monitoring-service
+  template:
+    metadata:
+      labels:
+        app: monitoring-service
+    spec:
+      containers:
+      - name: monitoring-service
+        image: ai-restaurant-recommendation/monitoring-service:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: AWS_REGION
+          value: "ap-southeast-1"
+        - name: NODE_ENV
+          value: "production"
+        - name: SERVICE_NAME
+          value: "monitoring-service"
+        - name: ALERT_TOPIC_ARN
+          value: "arn:aws:sns:ap-southeast-1:ACCOUNT_ID:ai-restaurant-recommendation-alerts"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5

@@ -1,0 +1,23 @@
+# Data Integration Service Docker ignore
+node_modules/
+npm-debug.log*
+.env
+.env.*
+*.log
+logs/
+coverage/
+.nyc_output/
+**/*.test.js
+**/*.test.ts
+**/*.spec.js
+**/*.spec.ts
+**/__tests__/
+**/tests/
+.git/
+.gitignore
+README.md
+*.md
+
+# Keep logs directory structure but not content
+logs/*
+!logs/.gitkeep

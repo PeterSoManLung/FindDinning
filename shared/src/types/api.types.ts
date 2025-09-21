@@ -82,7 +82,10 @@ export enum ErrorCode {
   // Data Integration
   DATA_SYNC_ERROR = 'DATA_SYNC_ERROR',
   DATA_QUALITY_ERROR = 'DATA_QUALITY_ERROR',
-  PLATFORM_UNAVAILABLE = 'PLATFORM_UNAVAILABLE'
+  PLATFORM_UNAVAILABLE = 'PLATFORM_UNAVAILABLE',
+  
+  // Not Found
+  NOT_FOUND = 'NOT_FOUND'
 }
 
 export interface HealthCheckResponse {

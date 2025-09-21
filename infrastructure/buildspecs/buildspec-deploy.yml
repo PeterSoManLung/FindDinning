@@ -1,0 +1,137 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - echo Installing deployment tools...
+      - curl -o kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/1.21.2/2021-07-05/bin/linux/amd64/kubectl
+      - chmod +x ./kubectl
+      - mv ./kubectl /usr/local/bin
+      - curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+      - chmod 700 get_helm.sh
+      - ./get_helm.sh
+      
+  pre_build:
+    commands:
+      - echo Deployment started on `date`
+      - echo Environment is $ENVIRONMENT
+      - echo EKS Cluster is $EKS_CLUSTER_NAME
+      
+      # Configure kubectl for EKS
+      - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $EKS_CLUSTER_NAME
+      
+      # Verify cluster connectivity
+      - kubectl get nodes
+      
+      # Create namespace if it doesn't exist
+      - kubectl create namespace $ENVIRONMENT || echo "Namespace $ENVIRONMENT already exists"
+      
+  build:
+    commands:
+      - echo Starting deployment to $ENVIRONMENT environment...
+      
+      # Update image tags in deployment manifests
+      - |
+        sed -i "s|IMAGE_TAG|$CODEBUILD_RESOLVED_SOURCE_VERSION|g" infrastructure/k8s/microservices-deployments.yaml
+        sed -i "s|AWS_ACCOUNT_ID|$AWS_ACCOUNT_ID|g" infrastructure/k8s/microservices-deployments.yaml
+        sed -i "s|AWS_REGION|$AWS_DEFAULT_REGION|g" infrastructure/k8s/microservices-deployments.yaml
+        sed -i "s|ENVIRONMENT|$ENVIRONMENT|g" infrastructure/k8s/microservices-deployments.yaml
+      
+      # Apply ConfigMaps and Secrets first
+      - echo "Applying configuration..."
+      - kubectl apply -f infrastructure/k8s/configmap.yaml -n $ENVIRONMENT
+      
+      # Create secrets for database and external services
+      - |
+        kubectl create secret generic db-credentials \
+          --from-literal=user-db-url="$USER_DB_URL" \
+          --from-literal=restaurant-db-url="$RESTAURANT_DB_URL" \
+          --from-literal=redis-url="$REDIS_URL" \
+          -n $ENVIRONMENT --dry-run=client -o yaml | kubectl apply -f -
+      
+      - |
+        kubectl create secret generic api-keys \
+          --from-literal=jwt-secret="$JWT_SECRET" \
+          --from-literal=openrice-api-key="$OPENRICE_API_KEY" \
+          --from-literal=tripadvisor-api-key="$TRIPADVISOR_API_KEY" \
+          -n $ENVIRONMENT --dry-run=client -o yaml | kubectl apply -f -
+      
+      # Deploy services based on environment
+      - |
+        if [ "$ENVIRONMENT" = "staging" ]; then
+          echo "Deploying to staging with rolling update..."
+          kubectl apply -f infrastructure/k8s/microservices-deployments.yaml -n $ENVIRONMENT
+          kubectl apply -f infrastructure/k8s/api-gateway-deployment.yaml -n $ENVIRONMENT
+          
+          # Wait for rollout to complete
+          kubectl rollout status deployment/api-gateway -n $ENVIRONMENT --timeout=600s
+          kubectl rollout status deployment/user-service -n $ENVIRONMENT --timeout=600s
+          kubectl rollout status deployment/restaurant-service -n $ENVIRONMENT --timeout=600s
+          kubectl rollout status deployment/recommendation-engine -n $ENVIRONMENT --timeout=600s
+          kubectl rollout status deployment/review-service -n $ENVIRONMENT --timeout=600s
+          kubectl rollout status deployment/emotion-service -n $ENVIRONMENT --timeout=600s
+          kubectl rollout status deployment/data-integration-service -n $ENVIRONMENT --timeout=600s
+          
+        elif [ "$ENVIRONMENT" = "production" ]; then
+          echo "Deploying to production with blue-green strategy..."
+          
+          # Create blue-green deployment
+          ./infrastructure/scripts/blue-green-deploy.sh $ENVIRONMENT $CODEBUILD_RESOLVED_SOURCE_VERSION
+          
+        fi
+      
+      # Apply ingress and services
+      - kubectl apply -f infrastructure/k8s/ingress.yaml -n $ENVIRONMENT
+      
+      # Apply RBAC if needed
+      - kubectl apply -f infrastructure/k8s/rbac.yaml -n $ENVIRONMENT
+      
+      # Run post-deployment health checks
+      - echo "Running health checks..."
+      - sleep 30  # Wait for services to start
+      - ./infrastructure/scripts/health-check.sh $ENVIRONMENT
+      
+      # Run smoke tests
+      - echo "Running smoke tests..."
+      - ./infrastructure/scripts/smoke-tests.sh $ENVIRONMENT
+      
+  post_build:
+    commands:
+      - echo Deployment completed on `date`
+      
+      # Get deployment status
+      - kubectl get deployments -n $ENVIRONMENT
+      - kubectl get services -n $ENVIRONMENT
+      - kubectl get ingress -n $ENVIRONMENT
+      
+      # Generate deployment report
+      - |
+        cat > deployment-report.json << EOF
+        {
+          "environment": "$ENVIRONMENT",
+          "deployment_time": "$(date -Iseconds)",
+          "image_tag": "$CODEBUILD_RESOLVED_SOURCE_VERSION",
+          "cluster": "$EKS_CLUSTER_NAME",
+          "services": [
+            "api-gateway",
+            "user-service", 
+            "restaurant-service",
+            "recommendation-engine",
+            "review-service",
+            "emotion-service",
+            "data-integration-service"
+          ],
+          "status": "completed"
+        }
+        EOF
+      
+      # Store deployment artifacts
+      - kubectl get all -n $ENVIRONMENT -o yaml > deployment-state.yaml
+
+artifacts:
+  files:
+    - deployment-report.json
+    - deployment-state.yaml
+  name: DeploymentArtifacts

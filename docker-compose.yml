@@ -1,0 +1,239 @@
+version: '3.8'
+
+services:
+  # Database Services
+  postgres-user:
+    image: postgres:15-alpine
+    container_name: find-dining-postgres-user
+    environment:
+      POSTGRES_DB: ${USER_DB_NAME:-user_db}
+      POSTGRES_USER: ${USER_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${USER_DB_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_user_data:/var/lib/postgresql/data
+      - ./scripts/init-user-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${USER_DB_USER:-postgres} -d ${USER_DB_NAME:-user_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - find-dining-network
+
+  postgres-restaurant:
+    image: postgres:15-alpine
+    container_name: find-dining-postgres-restaurant
+    environment:
+      POSTGRES_DB: ${RESTAURANT_DB_NAME:-restaurant_db}
+      POSTGRES_USER: ${RESTAURANT_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${RESTAURANT_DB_PASSWORD:-password}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_restaurant_data:/var/lib/postgresql/data
+      - ./scripts/init-restaurant-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RESTAURANT_DB_USER:-postgres} -d ${RESTAURANT_DB_NAME:-restaurant_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - find-dining-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: find-dining-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - find-dining-network
+
+  # Microservices
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: find-dining-api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3000
+      - USER_SERVICE_URL=http://user-service:3001
+      - RESTAURANT_SERVICE_URL=http://restaurant-service:3002
+      - RECOMMENDATION_ENGINE_URL=http://recommendation-engine:3003
+      - REVIEW_SERVICE_URL=http://review-service:3004
+      - EMOTION_SERVICE_URL=http://emotion-service:3005
+      - DATA_INTEGRATION_SERVICE_URL=http://data-integration-service:3006
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:19006}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
+    depends_on:
+      - user-service
+      - restaurant-service
+      - recommendation-engine
+      - review-service
+      - emotion-service
+      - data-integration-service
+    networks:
+      - find-dining-network
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: find-dining-user-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3001
+      - DATABASE_URL=postgresql://${USER_DB_USER:-postgres}:${USER_DB_PASSWORD:-password}@postgres-user:5432/${USER_DB_NAME:-user_db}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:19006}
+    depends_on:
+      postgres-user:
+        condition: service_healthy
+    networks:
+      - find-dining-network
+    restart: unless-stopped
+
+  restaurant-service:
+    build:
+      context: ./restaurant-service
+      dockerfile: Dockerfile
+    container_name: find-dining-restaurant-service
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3002
+      - DATABASE_URL=postgresql://${RESTAURANT_DB_USER:-postgres}:${RESTAURANT_DB_PASSWORD:-password}@postgres-restaurant:5432/${RESTAURANT_DB_NAME:-restaurant_db}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres-restaurant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - find-dining-network
+    restart: unless-stopped
+
+  recommendation-engine:
+    build:
+      context: ./recommendation-engine
+      dockerfile: Dockerfile
+    container_name: find-dining-recommendation-engine
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3003
+      - REDIS_URL=redis://redis:6379
+      - USER_SERVICE_URL=http://user-service:3001
+      - RESTAURANT_SERVICE_URL=http://restaurant-service:3002
+      - REVIEW_SERVICE_URL=http://review-service:3004
+      - EMOTION_SERVICE_URL=http://emotion-service:3005
+      - ML_MODEL_ENDPOINT=${ML_MODEL_ENDPOINT:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - find-dining-network
+    restart: unless-stopped
+
+  review-service:
+    build:
+      context: ./review-service
+      dockerfile: Dockerfile
+    container_name: find-dining-review-service
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3004
+      - DATABASE_URL=postgresql://${RESTAURANT_DB_USER:-postgres}:${RESTAURANT_DB_PASSWORD:-password}@postgres-restaurant:5432/${RESTAURANT_DB_NAME:-restaurant_db}
+      - REDIS_URL=redis://redis:6379
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - SENTIMENT_ANALYSIS_ENDPOINT=${SENTIMENT_ANALYSIS_ENDPOINT:-}
+    depends_on:
+      postgres-restaurant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - find-dining-network
+    restart: unless-stopped
+
+  emotion-service:
+    build:
+      context: ./emotion-service
+      dockerfile: Dockerfile
+    container_name: find-dining-emotion-service
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3005
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - BEDROCK_ENDPOINT=${BEDROCK_ENDPOINT:-}
+      - NLP_MODEL_ENDPOINT=${NLP_MODEL_ENDPOINT:-}
+    networks:
+      - find-dining-network
+    restart: unless-stopped
+
+  data-integration-service:
+    build:
+      context: ./data-integration-service
+      dockerfile: Dockerfile
+    container_name: find-dining-data-integration-service
+    ports:
+      - "3006:3006"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3006
+      - DATABASE_URL=postgresql://${RESTAURANT_DB_USER:-postgres}:${RESTAURANT_DB_PASSWORD:-password}@postgres-restaurant:5432/${RESTAURANT_DB_NAME:-restaurant_db}
+      - REDIS_URL=redis://redis:6379
+      - DATA_GOV_HK_API_KEY=${DATA_GOV_HK_API_KEY:-}
+      - OPENRICE_API_KEY=${OPENRICE_API_KEY:-}
+      - TRIPADVISOR_API_KEY=${TRIPADVISOR_API_KEY:-}
+      - EATIGO_API_KEY=${EATIGO_API_KEY:-}
+      - CHOPE_API_KEY=${CHOPE_API_KEY:-}
+      - FOODPANDA_API_KEY=${FOODPANDA_API_KEY:-}
+      - BISTROCHAT_API_KEY=${BISTROCHAT_API_KEY:-}
+      - KEETA_API_KEY=${KEETA_API_KEY:-}
+      - SYNC_SCHEDULE=${SYNC_SCHEDULE:-0 0 1 * *}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      postgres-restaurant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - find-dining-network
+    restart: unless-stopped
+    volumes:
+      - data_sync_logs:/app/logs
+
+networks:
+  find-dining-network:
+    driver: bridge
+
+volumes:
+  postgres_user_data:
+  postgres_restaurant_data:
+  redis_data:
+  data_sync_logs:

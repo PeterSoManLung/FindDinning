@@ -1,0 +1,121 @@
+{
+  "environments": {
+    "development": {
+      "apiBaseUrl": "http://localhost:3000",
+      "awsRegion": "ap-southeast-1",
+      "pinpointAppId": "dev-pinpoint-app-id",
+      "codePushDeploymentKey": "dev-codepush-key",
+      "enableAnalytics": true,
+      "enableCrashReporting": true,
+      "enablePerformanceMonitoring": true,
+      "enableCertificatePinning": false,
+      "logLevel": "debug"
+    },
+    "staging": {
+      "apiBaseUrl": "https://staging-api.finddining.com",
+      "awsRegion": "ap-southeast-1",
+      "pinpointAppId": "staging-pinpoint-app-id",
+      "codePushDeploymentKey": "staging-codepush-key",
+      "enableAnalytics": true,
+      "enableCrashReporting": true,
+      "enablePerformanceMonitoring": true,
+      "enableCertificatePinning": true,
+      "logLevel": "info"
+    },
+    "production": {
+      "apiBaseUrl": "https://api.finddining.com",
+      "awsRegion": "ap-southeast-1",
+      "pinpointAppId": "prod-pinpoint-app-id",
+      "codePushDeploymentKey": "prod-codepush-key",
+      "enableAnalytics": true,
+      "enableCrashReporting": true,
+      "enablePerformanceMonitoring": true,
+      "enableCertificatePinning": true,
+      "logLevel": "error"
+    }
+  },
+  "buildSettings": {
+    "android": {
+      "applicationId": "com.finddining.app",
+      "versionCode": 1,
+      "versionName": "1.0.0",
+      "minSdkVersion": 21,
+      "targetSdkVersion": 34,
+      "compileSdkVersion": 34,
+      "buildToolsVersion": "34.0.0",
+      "keystoreFile": "release.keystore",
+      "enableProguard": true,
+      "enableHermes": true
+    },
+    "ios": {
+      "bundleIdentifier": "com.finddining.app",
+      "version": "1.0.0",
+      "buildNumber": "1",
+      "deploymentTarget": "12.0",
+      "teamId": "YOUR_TEAM_ID",
+      "provisioningProfile": "FindDining Production",
+      "enableBitcode": false,
+      "enableHermes": true
+    }
+  },
+  "security": {
+    "certificatePinning": {
+      "enabled": true,
+      "hosts": [
+        {
+          "hostname": "api.finddining.com",
+          "hashes": [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+          ]
+        }
+      ]
+    },
+    "apiKeyProtection": {
+      "enabled": true,
+      "rotationInterval": 86400000,
+      "encryptionAlgorithm": "AES-256-GCM"
+    }
+  },
+  "analytics": {
+    "pinpoint": {
+      "enabled": true,
+      "sessionTimeout": 300000,
+      "batchSize": 100,
+      "flushInterval": 30000
+    },
+    "customEvents": [
+      "app_launch",
+      "screen_view",
+      "recommendation_interaction",
+      "search_performed",
+      "user_behavior",
+      "performance_metric"
+    ]
+  },
+  "codePush": {
+    "enabled": true,
+    "checkFrequency": "ON_APP_START",
+    "installMode": "ON_NEXT_RESTART",
+    "mandatoryInstallMode": "IMMEDIATE",
+    "updateDialog": {
+      "title": "Update Available",
+      "optionalUpdateMessage": "An update is available. Would you like to install it?",
+      "mandatoryUpdateMessage": "A mandatory update is available and must be installed."
+    }
+  },
+  "performance": {
+    "monitoring": {
+      "enabled": true,
+      "sampleRate": 1.0,
+      "networkTracing": true,
+      "screenTracing": true
+    },
+    "thresholds": {
+      "appLaunchTime": 3000,
+      "screenLoadTime": 2000,
+      "networkRequestTime": 5000,
+      "recommendationGenerationTime": 3000
+    }
+  }
+}

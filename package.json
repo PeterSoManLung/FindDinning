@@ -5,6 +5,7 @@
   "private": true,
   "workspaces": [
     "shared",
+    "api-gateway",
     "user-service",
     "restaurant-service",
     "recommendation-engine",
@@ -14,11 +15,13 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
+    "dev:gateway": "npm run dev --workspace=api-gateway",
     "dev:user": "npm run dev --workspace=user-service",
     "dev:restaurant": "npm run dev --workspace=restaurant-service",
     "dev:recommendation": "npm run dev --workspace=recommendation-engine",
     "dev:review": "npm run dev --workspace=review-service",
     "dev:emotion": "npm run dev --workspace=emotion-service",
+    "dev:all": "concurrently \"npm run dev:gateway\" \"npm run dev:user\" \"npm run dev:restaurant\" \"npm run dev:recommendation\" \"npm run dev:review\" \"npm run dev:emotion\"",
     "build:shared": "npm run build --workspace=shared",
     "install:all": "npm install && npm install --workspaces"
   },

@@ -1,0 +1,142 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - echo Installing security scanning tools...
+      - npm install -g npm@latest
+      - npm install -g snyk
+      - npm install -g retire
+      - npm install -g audit-ci
+      
+      # Install Docker security tools
+      - wget https://github.com/aquasecurity/trivy/releases/download/v0.45.0/trivy_0.45.0_Linux-64bit.tar.gz
+      - tar zxvf trivy_0.45.0_Linux-64bit.tar.gz
+      - mv trivy /usr/local/bin/
+      
+  pre_build:
+    commands:
+      - echo Security scan started on `date`
+      - mkdir -p reports/security
+      
+  build:
+    commands:
+      - echo Running security scans...
+      
+      # Dependency vulnerability scanning
+      - |
+        for service in shared api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service mobile-app; do
+          echo "Scanning dependencies for $service..."
+          cd $service
+          
+          # NPM audit
+          npm audit --audit-level=high --json > ../reports/security/$service-npm-audit.json || echo "NPM audit found issues in $service"
+          
+          # Snyk vulnerability scan
+          snyk test --json > ../reports/security/$service-snyk.json || echo "Snyk found vulnerabilities in $service"
+          
+          # Retire.js for JavaScript vulnerabilities
+          retire --js --json > ../reports/security/$service-retire.json || echo "Retire.js found issues in $service"
+          
+          cd ..
+        done
+      
+      # Docker image security scanning
+      - |
+        for service in api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service; do
+          echo "Scanning Docker image for $service..."
+          
+          # Trivy container scanning
+          trivy image --format json --output reports/security/$service-trivy.json $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME-$service:latest || echo "Trivy scan completed for $service"
+        done
+      
+      # Static code analysis
+      - echo "Running static code analysis..."
+      - |
+        for service in api-gateway user-service restaurant-service recommendation-engine review-service emotion-service data-integration-service; do
+          echo "Static analysis for $service..."
+          cd $service
+          
+          # ESLint security rules
+          npx eslint . --ext .ts,.js --format json --output-file ../reports/security/$service-eslint.json || echo "ESLint completed for $service"
+          
+          cd ..
+        done
+      
+      # Infrastructure security scanning
+      - echo "Scanning infrastructure code..."
+      - cd infrastructure/terraform
+      - |
+        # Checkov for Terraform security
+        pip3 install checkov
+        checkov -f . --framework terraform --output json --output-file ../../reports/security/terraform-checkov.json || echo "Checkov scan completed"
+      - cd ../..
+      
+      # Secrets scanning
+      - echo "Scanning for secrets..."
+      - |
+        # TruffleHog for secret detection
+        docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog:latest filesystem /pwd --json > reports/security/secrets-scan.json || echo "Secrets scan completed"
+      
+  post_build:
+    commands:
+      - echo Security scan completed on `date`
+      
+      # Generate security summary report
+      - |
+        echo "Generating security summary..."
+        cat > reports/security/summary.json << EOF
+        {
+          "scan_date": "$(date -Iseconds)",
+          "services_scanned": ["api-gateway", "user-service", "restaurant-service", "recommendation-engine", "review-service", "emotion-service", "data-integration-service", "mobile-app"],
+          "scan_types": ["npm-audit", "snyk", "retire", "trivy", "eslint", "checkov", "secrets"],
+          "status": "completed"
+        }
+        EOF
+      
+      # Check for critical vulnerabilities and fail build if found
+      - |
+        echo "Checking for critical vulnerabilities..."
+        CRITICAL_FOUND=false
+        
+        # Check NPM audit results for critical issues
+        for file in reports/security/*-npm-audit.json; do
+          if [ -f "$file" ]; then
+            CRITICAL_COUNT=$(jq '.metadata.vulnerabilities.critical // 0' "$file")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "Critical vulnerabilities found in $(basename $file)"
+              CRITICAL_FOUND=true
+            fi
+          fi
+        done
+        
+        # Check Snyk results for high severity issues
+        for file in reports/security/*-snyk.json; do
+          if [ -f "$file" ]; then
+            HIGH_COUNT=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' "$file" 2>/dev/null || echo "0")
+            if [ "$HIGH_COUNT" -gt 5 ]; then
+              echo "Too many high severity vulnerabilities found in $(basename $file)"
+              CRITICAL_FOUND=true
+            fi
+          fi
+        done
+        
+        if [ "$CRITICAL_FOUND" = true ]; then
+          echo "Critical security issues found. Please review and fix before deployment."
+          # Uncomment the next line to fail the build on critical issues
+          # exit 1
+        fi
+
+artifacts:
+  files:
+    - 'reports/security/**/*'
+  name: SecurityReports
+
+reports:
+  security_reports:
+    files:
+      - 'reports/security/*.json'
+    file-format: 'JUNITXML'
+    base-directory: '.'

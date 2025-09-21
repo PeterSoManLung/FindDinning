@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: find-dining
+  labels:
+    name: find-dining
+    app.kubernetes.io/name: find-dining
+    app.kubernetes.io/instance: find-dining
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: namespace
+    app.kubernetes.io/part-of: find-dining-platform
+    app.kubernetes.io/managed-by: terraform
